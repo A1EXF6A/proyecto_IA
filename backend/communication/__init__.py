@@ -1,0 +1,1 @@
+"""Comunicación con dispositivos externos."""

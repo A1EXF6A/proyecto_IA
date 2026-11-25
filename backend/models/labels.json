@@ -1,0 +1,11 @@
+{
+  "labels": {
+    "alex": "Alex Guachi",
+    "alexander": "Alexander Luisa",
+    "heidi": "Heidi Villavicenicio",
+    "steven": "Steven Toala",
+    "desconocido": "desconocido"
+  },
+  "model": "KNN",
+  "selection_basis": "Mejor F1 macro y accuracy en fotografías independientes de salidas/metricas_fotos_nuevas.csv"
+}

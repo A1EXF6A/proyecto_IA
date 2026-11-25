@@ -75,6 +75,50 @@ def _draw_label(image, box, text) -> None:
     )
 
 
+def camera_stream_candidates() -> list[str]:
+    """URLs candidatas del stream MJPEG nativo de IP Webcam.
+
+    Si se define CAMERA_STREAM_URL se usa esa primero. Si no, se deriva de
+    IPWEBCAM_URL reemplazando shot.jpg por /video (o /videofeed).
+    """
+    candidates = []
+    if config.CAMERA_STREAM_URL:
+        candidates.append(config.CAMERA_STREAM_URL)
+    parsed = urlparse(config.CAMERA_URL)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        parent = parsed.path.rsplit("/", 1)[0]
+        for name in ("video", "videofeed"):
+            path = f"{parent}/{name}" if parent else f"/{name}"
+            candidate = parsed._replace(path=path, query="", fragment="").geturl()
+            if candidate not in candidates:
+                candidates.append(candidate)
+    return candidates
+
+
+def open_camera_stream():
+    """Abre el stream MJPEG nativo de la cámara, si está disponible.
+
+    Devuelve (url, respuesta_http) o (None, None). La respuesta se debe
+    cerrar cuando termine de consumirse.
+    """
+    timeout = max(1.0, min(3.0, config.CAMERA_TIMEOUT_SECONDS))
+    for url in camera_stream_candidates():
+        try:
+            response = urllib.request.urlopen(
+                urllib.request.Request(
+                    url, headers={"User-Agent": "Mozilla/5.0 ProyectoFinal/1.0"}
+                ),
+                timeout=timeout,
+            )
+        except Exception:
+            continue
+        content_type = (response.headers.get("Content-Type") or "").lower()
+        if content_type.startswith("multipart/x-mixed-replace"):
+            return url, response
+        response.close()
+    return None, None
+
+
 def fetch_camera_image(url: str) -> bytes:
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:

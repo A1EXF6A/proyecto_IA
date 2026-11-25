@@ -2,8 +2,8 @@
 
 ## Qué quedó integrado
 
-- Frontend React existente: conserva captura, vista previa y resultado.
-- Backend FastAPI: obtiene la imagen desde IP Webcam, procesa el rostro y ejecuta el modelo KNN.
+- Frontend React existente: muestra una vista en vivo de la cámara, captura y resultado.
+- Backend FastAPI: entrega el video en vivo (MJPEG), obtiene la imagen desde IP Webcam, procesa el rostro y ejecuta el modelo KNN.
 - Modelo: `backend/models/knn_best.joblib` (único clasificador usado).
 - Etiquetas: `backend/models/labels.json`.
 - Preprocesamiento: YuNet + alineación de ojos + escala de grises 64x64 + estadísticas regionales 4x4 + HOG. Se replica el procedimiento del notebook.
@@ -60,6 +60,8 @@ Edita `backend/.env`:
 
 ```env
 IPWEBCAM_URL=http://IP_DEL_TELEFONO:8080/shot.jpg
+CAMERA_STREAM_URL=
+CAMERA_STREAM_FPS=10
 ESP32_SERIAL_PORT=COM3
 ESP32_BAUDRATE=115200
 ESP32_SERIAL_TIMEOUT=1
@@ -71,6 +73,9 @@ YUNET_PATH=models/face_detection_yunet_2023mar.onnx
 ```
 
 - En IP Webcam activa el servidor e introduce la URL de captura que corresponda a tu teléfono. Según la versión, la ruta puede ser `/shot.jpg`.
+- La vista en vivo usa el stream MJPEG nativo de IP Webcam: a partir de `IPWEBCAM_URL` se prueba `/video` y `/videofeed`, lo que da muchos más FPS y menor latencia. Si ninguno responde, el backend cae automáticamente al sondeo de `shot.jpg`, controlado por `CAMERA_STREAM_FPS` (1-30).
+- Si tu versión de IP Webcam usa otra ruta de stream, defínela en `CAMERA_STREAM_URL`.
+- Para mejorar la nitidez, ajusta la resolución en IP Webcam (Preferencias de video), no en esta aplicación.
 - Comprueba el puerto del ESP32 en Administrador de dispositivos > Puertos (COM y LPT).
 - Cambia `COM3` por el puerto real.
 - Cierra el Monitor Serial del Arduino IDE antes de ejecutar el backend: un puerto COM no puede estar abierto simultáneamente por dos programas.
@@ -105,9 +110,9 @@ Abre la URL que muestre Vite. El backend estará en `http://localhost:8000`.
 
 ## Secuencia de funcionamiento
 
-1. El usuario pulsa **Tomar foto y reconocer**.
-2. React solicita al backend la captura de IP Webcam.
-3. FastAPI descarga la fotografía.
+1. Al abrir la interfaz, React se conecta a `GET /api/camera/stream` y muestra la cámara en vivo.
+2. El usuario pulsa **Tomar foto y reconocer**.
+3. React solicita al backend el reconocimiento; FastAPI descarga el fotograma actual de IP Webcam.
 4. YuNet localiza el rostro, lo recorta, alinea y normaliza.
 5. El backend genera el mismo vector de 356 características usado al entrenar KNN.
 6. KNN devuelve una etiqueta.
@@ -118,6 +123,8 @@ Abre la URL que muestre Vite. El backend estará en `http://localhost:8000`.
 ## Verificación
 
 - `GET http://localhost:8000/api/health`: estado general y disponibilidad del modelo.
+- `GET http://localhost:8000/api/camera/stream`: vista en vivo MJPEG usada por el frontend.
+- `GET http://localhost:8000/api/camera/snapshot`: último fotograma individual.
 - `GET http://localhost:8000/api/esp32/status`: estado del puerto serial.
 - `GET http://localhost:8000/api/faces/status`: personas y muestras registradas.
 - En la interfaz se muestra el estado de conexión del ESP32 y el comando enviado en cada reconocimiento.

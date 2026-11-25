@@ -15,8 +15,21 @@ except ImportError:
 @lru_cache(maxsize=1)
 def _load_model():
     if not config.BEST_MODEL_PATH.exists():
-        raise RuntimeError(f"No se encuentra el modelo KNN: {config.BEST_MODEL_PATH}")
-    return joblib.load(config.BEST_MODEL_PATH)
+        raise RuntimeError(f"No se encuentra el modelo: {config.BEST_MODEL_PATH}")
+    loaded = joblib.load(config.BEST_MODEL_PATH)
+    if isinstance(loaded, dict):
+        key = config.BEST_MODEL_KEY or "KNN"
+        if key in loaded:
+            return loaded[key]
+        lowered = {str(k).strip().casefold(): v for k, v in loaded.items()}
+        if key.casefold() in lowered:
+            return lowered[key.casefold()]
+        available = ", ".join(str(k) for k in loaded.keys())
+        raise RuntimeError(
+            f"No se encontró la clave '{key}' en {config.BEST_MODEL_PATH}. "
+            f"Claves disponibles: {available}"
+        )
+    return loaded
 
 
 @lru_cache(maxsize=1)

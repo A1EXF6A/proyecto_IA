@@ -34,6 +34,6 @@ export function postForm(path, body) {
   return api(path, { method: 'POST', body })
 }
 
-export function cameraPreviewUrl(key) {
-  return `/api/camera/snapshot?t=${key}`
+export function cameraStreamUrl(key) {
+  return `/api/camera/stream?t=${key}`
 }

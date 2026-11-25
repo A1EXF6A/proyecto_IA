@@ -1,10 +1,11 @@
 import base64
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -70,6 +71,53 @@ def _camera_bytes():
             status_code=400,
             detail="No se pudo capturar de la cámara configurada.",
         )
+
+
+def _mjpeg_iter():
+    """Genera cuadros MJPEG leyendo la cámara configurada."""
+    interval = 1.0 / max(1, config.CAMERA_STREAM_FPS)
+    failures = 0
+    while True:
+        started = time.monotonic()
+        try:
+            frame = face_engine.fetch_camera_image(config.CAMERA_URL)
+            failures = 0
+        except Exception:
+            failures += 1
+            # Se reintenta brevemente; si la cámara sigue caída se cierra el
+            # stream para que el frontend muestre el aviso y pueda reconectar.
+            if failures > 5:
+                break
+            time.sleep(0.4)
+            continue
+        yield (
+            b"--frame\r\n"
+            b"Content-Type: image/jpeg\r\n"
+            b"Content-Length: " + str(len(frame)).encode("ascii") + b"\r\n\r\n"
+            + frame
+            + b"\r\n"
+        )
+        remaining = interval - (time.monotonic() - started)
+        if remaining > 0:
+            time.sleep(remaining)
+
+
+def _native_mjpeg_iter(upstream):
+    """Reenvía tal cual el stream MJPEG nativo de IP Webcam (una sola conexión)."""
+    try:
+        while True:
+            try:
+                chunk = upstream.read(8192)
+            except Exception:
+                break
+            if not chunk:
+                break
+            yield chunk
+    finally:
+        try:
+            upstream.close()
+        except Exception:
+            pass
 
 
 def _source_bytes(file: UploadFile | None, image_base64: str | None):
@@ -154,7 +202,45 @@ def camera_status():
 
 @app.get("/api/camera/snapshot")
 def camera_snapshot():
-    return Response(content=_camera_bytes(), media_type="image/jpeg")
+    return Response(
+        content=_camera_bytes(),
+        media_type="image/jpeg",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
+@app.get("/api/camera/stream")
+def camera_stream():
+    """Vista en vivo en formato MJPEG (multipart/x-mixed-replace).
+
+    Primero intenta reenviar el stream nativo de IP Webcam (/video), que
+    entrega muchos más cuadros por segundo. Si no está disponible, cae al
+    sondeo de IPWEBCAM_URL (shot.jpg).
+    """
+    if not config.CAMERA_URL:
+        raise HTTPException(
+            status_code=400,
+            detail="Cámara no configurada. Defina IPWEBCAM_URL en el backend.",
+        )
+    headers = {
+        "Cache-Control": "no-store, max-age=0",
+        "Pragma": "no-cache",
+        "X-Accel-Buffering": "no",
+    }
+    _, upstream = face_engine.open_camera_stream()
+    if upstream is not None:
+        media_type = (
+            upstream.headers.get("Content-Type")
+            or "multipart/x-mixed-replace; boundary=frame"
+        )
+        return StreamingResponse(
+            _native_mjpeg_iter(upstream), media_type=media_type, headers=headers
+        )
+    return StreamingResponse(
+        _mjpeg_iter(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers=headers,
+    )
 
 
 @app.post("/api/recognize")

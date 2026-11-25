@@ -21,8 +21,16 @@ def env_path(name: str, default: str = "") -> Path:
 
 
 CAMERA_URL = os.getenv("IPWEBCAM_URL", os.getenv("CAMERA_URL", "")).strip()
+# Stream MJPEG nativo (por defecto se deduce IPWEBCAM_URL; ej. http://IP:8080/video).
+CAMERA_STREAM_URL = os.getenv("CAMERA_STREAM_URL", "").strip()
 CAMERA_TIMEOUT_SECONDS = float(os.getenv("CAMERA_TIMEOUT_SECONDS", "5"))
 MAX_IMAGE_BYTES = int(os.getenv("MAX_IMAGE_BYTES", str(8 * 1024 * 1024)))
+# Cuadros por segundo del modo de respaldo (sondeo de shot.jpg).
+try:
+    CAMERA_STREAM_FPS = int(os.getenv("CAMERA_STREAM_FPS", "10"))
+except ValueError:
+    CAMERA_STREAM_FPS = 10
+CAMERA_STREAM_FPS = max(1, min(30, CAMERA_STREAM_FPS))
 FACE_MATCH_THRESHOLD = float(os.getenv("FACE_MATCH_THRESHOLD", "70"))
 FACE_MODEL_PROVIDER = os.getenv("FACE_MODEL_PROVIDER", "lbph").strip().lower()
 FACE_MODEL_PATH = env_path("FACE_MODEL_PATH")
@@ -49,6 +57,7 @@ def ensure_dirs() -> None:
 # Modelo KNN entrenado en el notebook (único modelo utilizado en producción).
 MODEL_DIR = BACKEND_DIR / "models"
 BEST_MODEL_PATH = env_path("BEST_MODEL_PATH", "models/knn_best.joblib")
+BEST_MODEL_KEY = os.getenv("BEST_MODEL_KEY", "KNN").strip()
 BEST_MODEL_LABELS_PATH = env_path("BEST_MODEL_LABELS_PATH", "models/labels.json")
 FACE_MODEL_THRESHOLD = float(os.getenv("FACE_MODEL_THRESHOLD", "0.0"))
 

@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { api, cameraPreviewUrl, postForm, postJson } from '../api.js'
+import { api, cameraStreamUrl, postForm, postJson } from '../api.js'
 
 export default function RecognitionTab({ focusState, refreshFocus }) {
-  const [previewKey, setPreviewKey] = useState(0)
+  const [streamKey, setStreamKey] = useState(0)
+  const [previewLoaded, setPreviewLoaded] = useState(false)
   const [previewFailed, setPreviewFailed] = useState(false)
+  const [flash, setFlash] = useState(false)
   const [cameraStatus, setCameraStatus] = useState({ configured: false })
   const [esp32Status, setEsp32Status] = useState({ connected: false, port: 'COM3' })
   const [result, setResult] = useState(null)
@@ -19,6 +21,7 @@ export default function RecognitionTab({ focusState, refreshFocus }) {
   const [sampleFile, setSampleFile] = useState(null)
   const [trainingBusy, setTrainingBusy] = useState(false)
   const uploadRef = useRef(null)
+  const flashTimer = useRef(null)
 
   const externalModel = faceStatus.provider && faceStatus.provider !== 'lbph'
 
@@ -60,6 +63,28 @@ export default function RecognitionTab({ focusState, refreshFocus }) {
     loadEsp32Status()
   }, [])
 
+  // Si el stream en vivo se corta (cámara apagada, cambio de red, etc.),
+  // se reintenta automáticamente cada pocos segundos.
+  useEffect(() => {
+    if (!previewFailed || !cameraStatus.configured) return undefined
+    const timer = window.setTimeout(() => {
+      setPreviewFailed(false)
+      setPreviewLoaded(false)
+      setStreamKey(Date.now())
+    }, 2500)
+    return () => window.clearTimeout(timer)
+  }, [previewFailed, cameraStatus.configured])
+
+  useEffect(() => () => {
+    if (flashTimer.current) window.clearTimeout(flashTimer.current)
+  }, [])
+
+  function reconnectPreview() {
+    setPreviewFailed(false)
+    setPreviewLoaded(false)
+    setStreamKey(Date.now())
+  }
+
   async function recognize(payload, isForm = false) {
     setBusy(true)
     setMessage(null)
@@ -83,7 +108,10 @@ export default function RecognitionTab({ focusState, refreshFocus }) {
       setMessage({ type: 'error', text: 'Configure IPWEBCAM_URL en el backend' })
       return
     }
-    setPreviewKey(Date.now())
+    // Pequeño destello para indicar que se tomó el fotograma actual.
+    setFlash(true)
+    if (flashTimer.current) window.clearTimeout(flashTimer.current)
+    flashTimer.current = window.setTimeout(() => setFlash(false), 320)
     recognize({})
   }
 
@@ -161,8 +189,8 @@ export default function RecognitionTab({ focusState, refreshFocus }) {
       <section className="panel">
         <div className="panel-header">
           <div>
-            <h2>Captura desde IP Web Cam</h2>
-            <p className="muted">La cámara se configura en el backend y no se muestra en la interfaz.</p>
+            <h2>Cámara en vivo (IP Web Cam)</h2>
+            <p className="muted">Lo que ves es la transmisión actual del celular; toma la foto cuando el rostro esté en cuadro.</p>
           </div>
           <div className="chip-row">
             <span className={faceStatus.trained ? 'chip success' : 'chip warning'}>{modelLabel}</span>
@@ -179,14 +207,35 @@ export default function RecognitionTab({ focusState, refreshFocus }) {
           <div className="preview-frame">
             {!cameraStatus.configured ? (
               <div className="preview-empty">Configure IPWEBCAM_URL en el backend</div>
-            ) : previewFailed ? (
-              <div className="preview-empty">No se pudo cargar la vista previa</div>
             ) : (
-              <img
-                src={cameraPreviewUrl(previewKey)}
-                alt="Vista previa de IP Web Cam"
-                onError={() => setPreviewFailed(true)}
-              />
+              <>
+                <img
+                  key={streamKey}
+                  src={cameraStreamUrl(streamKey)}
+                  alt="Vista en vivo de IP Web Cam"
+                  onLoad={() => {
+                    setPreviewLoaded(true)
+                    setPreviewFailed(false)
+                  }}
+                  onError={() => {
+                    setPreviewLoaded(false)
+                    setPreviewFailed(true)
+                  }}
+                />
+                <span className={`live-badge ${previewLoaded && !previewFailed ? 'active' : ''}`}>
+                  <span className="live-dot" />
+                  {previewLoaded && !previewFailed ? 'EN VIVO' : 'SIN SEÑAL'}
+                </span>
+                {!previewLoaded && !previewFailed && (
+                  <div className="preview-overlay">Conectando con la cámara…</div>
+                )}
+                {previewFailed && (
+                  <div className="preview-overlay">
+                    No se pudo cargar la vista en vivo. Reconectando…
+                  </div>
+                )}
+                <span className={`capture-flash ${flash ? 'active' : ''}`} />
+              </>
             )}
           </div>
           <div className="action-column">
@@ -194,12 +243,9 @@ export default function RecognitionTab({ focusState, refreshFocus }) {
               className="button ghost"
               type="button"
               disabled={!cameraStatus.configured}
-              onClick={() => {
-                setPreviewFailed(false)
-                setPreviewKey(Date.now())
-              }}
+              onClick={reconnectPreview}
             >
-              Actualizar vista
+              Reconectar cámara
             </button>
             <button
               className="button primary"
@@ -225,7 +271,7 @@ export default function RecognitionTab({ focusState, refreshFocus }) {
               onChange={handleUpload}
             />
             <p className="muted small">
-              La foto se envía al backend, se compara con el modelo activo y se activa el foco del vehículo.
+              Al tomar la foto se analiza el fotograma actual, se compara con el modelo KNN y se activa el foco del vehículo.
             </p>
           </div>
         </div>

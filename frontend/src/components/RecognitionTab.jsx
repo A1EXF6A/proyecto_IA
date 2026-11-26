@@ -275,59 +275,6 @@ export default function RecognitionTab({ focusState, refreshFocus }) {
         </div>
       </section>
 
-      <section className="panel full-width">
-        <div className="panel-header">
-          <div>
-            <h2>Reconocer imagen desde el ordenador</h2>
-            <p className="muted">También puedes seleccionar una fotografía guardada en tu equipo. Se analizará con el mismo modelo KNN y, si se reconoce a una persona, se enviará su identificador al ESP32.</p>
-          </div>
-          <span className="chip">Reconocimiento manual</span>
-        </div>
-        <div className="training-layout">
-          <label className="field">
-            <span>Seleccionar fotografía</span>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(event) => {
-                setRecognitionFile(event.target.files?.[0] || null)
-                setUploadResult(null)
-              }}
-            />
-          </label>
-          <div className="training-actions">
-            <button
-              className="button primary"
-              type="button"
-              disabled={uploadBusy || !recognitionFile}
-              onClick={handleUploadRecognition}
-            >
-              {uploadBusy ? 'Analizando imagen…' : 'Analizar imagen'}
-            </button>
-          </div>
-        </div>
-        {uploadResult && (
-          <div className="result-layout upload-result">
-            <img className="result-image" src={uploadResult.annotated_image} alt="Imagen subida y analizada" />
-            <div className="result-details">
-              <h3 className={uploadResult.recognized ? 'name-success' : 'name-unknown'}>
-                {uploadResult.recognized ? uploadResult.person.name : 'Persona no identificada'}
-              </h3>
-              <p className="muted">{uploadResult.message}</p>
-              <p className="muted small">
-                ESP32: {uploadResult.esp32?.sent
-                  ? `comando ${uploadResult.esp32.message} enviado`
-                  : `sin envío: ${uploadResult.esp32?.message || 'puerto no disponible'}`}
-              </p>
-              <div className="metrics">
-                <div><span>Confianza</span><strong>{uploadResult.confidence != null ? `${uploadResult.confidence}%` : 'N/A'}</strong></div>
-                <div><span>Distancia</span><strong>{uploadResult.distance != null ? uploadResult.distance : 'N/A'}</strong></div>
-              </div>
-            </div>
-          </div>
-        )}
-      </section>
-
       <section className="panel">
         <div className="panel-header">
           <div>
@@ -407,6 +354,59 @@ export default function RecognitionTab({ focusState, refreshFocus }) {
             ))}
           </div>
         </div>
+      </section>
+
+      <section className="panel full-width">
+        <div className="panel-header">
+          <div>
+            <h2>Reconocer imagen desde el ordenador</h2>
+            <p className="muted">También puedes seleccionar una fotografía guardada en tu equipo. Se analizará con el mismo modelo KNN y, si se reconoce a una persona, se enviará su identificador al ESP32.</p>
+          </div>
+          <span className="chip">Reconocimiento manual</span>
+        </div>
+        <div className="training-layout">
+          <label className="field">
+            <span>Seleccionar fotografía</span>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(event) => {
+                setRecognitionFile(event.target.files?.[0] || null)
+                setUploadResult(null)
+              }}
+            />
+          </label>
+          <div className="training-actions">
+            <button
+              className="button primary"
+              type="button"
+              disabled={uploadBusy || !recognitionFile}
+              onClick={handleUploadRecognition}
+            >
+              {uploadBusy ? 'Analizando imagen…' : 'Analizar imagen'}
+            </button>
+          </div>
+        </div>
+        {uploadResult && (
+          <div className="result-layout upload-result">
+            <img className="result-image" src={uploadResult.annotated_image} alt="Imagen subida y analizada" />
+            <div className="result-details">
+              <h3 className={uploadResult.recognized ? 'name-success' : 'name-unknown'}>
+                {uploadResult.recognized ? uploadResult.person.name : 'Persona no identificada'}
+              </h3>
+              <p className="muted">{uploadResult.message}</p>
+              <p className="muted small">
+                ESP32: {uploadResult.esp32?.sent
+                  ? `comando ${uploadResult.esp32.message} enviado`
+                  : `sin envío: ${uploadResult.esp32?.message || 'puerto no disponible'}`}
+              </p>
+              <div className="metrics">
+                <div><span>Confianza</span><strong>{uploadResult.confidence != null ? `${uploadResult.confidence}%` : 'N/A'}</strong></div>
+                <div><span>Distancia</span><strong>{uploadResult.distance != null ? uploadResult.distance : 'N/A'}</strong></div>
+              </div>
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="panel full-width">

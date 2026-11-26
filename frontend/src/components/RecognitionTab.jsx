@@ -75,6 +75,26 @@ export default function RecognitionTab({ focusState, refreshFocus }) {
     return () => window.clearTimeout(timer)
   }, [previewFailed, cameraStatus.configured])
 
+  useEffect(() => {
+    function handleWindowPaste(event) {
+      if (busy) return
+      const items = event.clipboardData?.items
+      if (!items) return
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile()
+          if (file) {
+            event.preventDefault()
+            recognizeFile(file)
+            return
+          }
+        }
+      }
+    }
+    window.addEventListener('paste', handleWindowPaste)
+    return () => window.removeEventListener('paste', handleWindowPaste)
+  }, [busy])
+
   useEffect(() => () => {
     if (flashTimer.current) window.clearTimeout(flashTimer.current)
   }, [])
@@ -115,13 +135,40 @@ export default function RecognitionTab({ focusState, refreshFocus }) {
     recognize({})
   }
 
-  function handleUpload(event) {
-    const file = event.target.files?.[0]
-    if (!file) return
+  function recognizeFile(file) {
     const form = new FormData()
     form.append('file', file)
     recognize(form, true)
+  }
+
+  function handleUpload(event) {
+    const file = event.target.files?.[0]
+    if (!file) return
+    recognizeFile(file)
     event.target.value = ''
+  }
+
+  async function handlePasteButton() {
+    if (!navigator.clipboard?.read) {
+      setMessage({ type: 'error', text: 'Tu navegador no permite leer el portapapeles con el botón. Usa Ctrl+V.' })
+      return
+    }
+    try {
+      const items = await navigator.clipboard.read()
+      for (const item of items) {
+        const imageType = item.types.find((type) => type.startsWith('image/'))
+        if (imageType) {
+          const blob = await item.getType(imageType)
+          const ext = imageType.split('/')[1] || 'png'
+          const file = new File([blob], `pasted-image.${ext}`, { type: imageType })
+          recognizeFile(file)
+          return
+        }
+      }
+      setMessage({ type: 'error', text: 'No hay ninguna imagen en el portapapeles.' })
+    } catch {
+      setMessage({ type: 'error', text: 'No se pudo acceder al portapapeles. Puedes pegar directamente con Ctrl+V.' })
+    }
   }
 
   async function handleSample(source) {
@@ -262,6 +309,14 @@ export default function RecognitionTab({ focusState, refreshFocus }) {
               disabled={busy}
             >
               Subir foto desde la PC
+            </button>
+            <button
+              className="button secondary"
+              type="button"
+              onClick={handlePasteButton}
+              disabled={busy}
+            >
+              Pegar imagen (Ctrl+V)
             </button>
             <input
               ref={uploadRef}

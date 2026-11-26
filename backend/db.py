@@ -80,17 +80,22 @@ def init_db() -> None:
     ensure_dirs()
     with get_connection() as connection:
         connection.executescript(SCHEMA)
-        existing = connection.execute("SELECT COUNT(*) FROM people").fetchone()[0]
-        if existing:
-            return
+        # Se completan solo los registros que falten. Así una base de datos
+        # antigua o incompleta recupera las personas/vehículos sin sobrescribir
+        # las asignaciones de dueño que el usuario ya haya cambiado.
         for name in PEOPLE:
-            connection.execute("INSERT INTO people (name) VALUES (?)", (name,))
+            connection.execute(
+                "INSERT OR IGNORE INTO people (name) VALUES (?)", (name,)
+            )
         for plate, brand, model, color, owner_name in VEHICLES:
             owner = connection.execute(
                 "SELECT id FROM people WHERE name = ?", (owner_name,)
             ).fetchone()
+            if not owner:
+                continue
             connection.execute(
-                "INSERT INTO vehicles (plate, brand, model, color, owner_id) VALUES (?, ?, ?, ?, ?)",
+                "INSERT OR IGNORE INTO vehicles (plate, brand, model, color, owner_id) "
+                "VALUES (?, ?, ?, ?, ?)",
                 (plate, brand, model, color, owner["id"]),
             )
 

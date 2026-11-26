@@ -113,8 +113,8 @@ Abre la URL que muestre Vite. El backend estará en `http://localhost:8000`.
 1. Al abrir la interfaz, React se conecta a `GET /api/camera/stream` y muestra la transmisión en vivo del teléfono.
 2. Sin presionar botones, React consulta automáticamente `POST /api/recognize/live` cada segundo.
 3. FastAPI obtiene el fotograma actual de IP Webcam y ejecuta YuNet, el preprocesamiento y KNN.
-4. Para evitar activaciones por predicciones aisladas, se requieren 2 fotogramas consecutivos para confirmar una identidad y 3 fotogramas sin identidad para apagar la salida.
-5. Cuando se confirma una persona, el backend busca su ID en SQLite y envía `ID:<id>` al ESP32. El comando solo se vuelve a enviar si cambia la persona reconocida.
+4. La identidad se aplica con el primer fotograma reconocido, sin esperar confirmación. Para apagar la salida se exigen 3 fotogramas consecutivos sin una identidad reconocida, evitando parpadeos.
+5. Cuando se reconoce una persona, el backend busca su ID en SQLite y envía `ID:<id>` al ESP32. El comando solo se vuelve a enviar si cambia la persona reconocida.
 6. Cuando se confirma que no hay una persona reconocida, se envía `ID:0` una sola vez para apagar los LED.
 7. El ESP32 apaga todos los LED y enciende el LED asociado al ID recibido.
 
@@ -142,7 +142,7 @@ Abre la URL que muestre Vite. El backend estará en `http://localhost:8000`.
 - La imagen subida se procesa mediante `POST /api/recognize`; si se reconoce una persona, se activa su foco y se envía su identificador al ESP32. Si no se reconoce, se envía `ID:0`.
 - La vista de cámara permanece en vivo y el frontend envía una solicitud automática al backend cada 1000 ms.
 - Cada solicitud analiza el fotograma actual de `IPWEBCAM_URL`; no es necesario que el usuario capture una foto.
-- El backend confirma una identidad después de 2 fotogramas consecutivos. Para considerar que la persona salió del encuadre y apagar los LED, exige 3 fotogramas sin una identidad reconocida.
+- El backend aplica la identidad con el primer fotograma reconocido. Para considerar que la persona salió del encuadre y apagar los LED, exige 3 fotogramas sin una identidad reconocida.
 - La sección **Registro de rostros** sigue destinada exclusivamente a registrar muestras de entrenamiento. La nueva sección de reconocimiento desde el ordenador es independiente y permite analizar una imagen sin incorporarla al conjunto de entrenamiento.
 - El reconocimiento automático de la cámara continúa activo mientras se utiliza la carga manual; por tanto, un fotograma posterior de la cámara puede actualizar el resultado y el estado de los LED.
 - El endpoint automático es `POST /api/recognize/live`.

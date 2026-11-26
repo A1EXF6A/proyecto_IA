@@ -144,15 +144,25 @@ def _recognize_bytes(image_bytes: bytes):
     return result
 
 
-# Estado de estabilización para el reconocimiento automático.
-# Se exige más de un fotograma para evitar cambios por predicciones aisladas.
+# Estado del reconocimiento automático.
+# La identidad se aplica con el primer fotograma reconocido (sin confirmación).
+# Solo el apagado exige varios fotogramas sin identidad para evitar parpadeos.
 _live_lock = threading.Lock()
 _live_candidate_id = None
 _live_candidate_frames = 0
 _live_last_sent_id = 0
 _live_last_applied_id = 0
-_LIVE_CONFIRM_FRAMES = 2
 _LIVE_UNKNOWN_FRAMES = 3
+
+
+def _reset_live_state() -> None:
+    """Olvida la última identificación aplicada para forzar una nueva evaluación."""
+    global _live_candidate_id, _live_candidate_frames, _live_last_sent_id, _live_last_applied_id
+    with _live_lock:
+        _live_candidate_id = None
+        _live_candidate_frames = 0
+        _live_last_sent_id = 0
+        _live_last_applied_id = 0
 
 
 def _recognize_live_frame(image_bytes: bytes):
@@ -175,7 +185,8 @@ def _recognize_live_frame(image_bytes: bytes):
             _live_candidate_id = candidate_id
             _live_candidate_frames = 1
 
-        required = _LIVE_CONFIRM_FRAMES if candidate_id is not None else _LIVE_UNKNOWN_FRAMES
+        # Un rostro reconocido se aplica de inmediato (1 fotograma).
+        required = 1 if candidate_id is not None else _LIVE_UNKNOWN_FRAMES
         stable = _live_candidate_frames >= required
         result["stable"] = stable
         result["pending_frames"] = _live_candidate_frames
@@ -185,13 +196,11 @@ def _recognize_live_frame(image_bytes: bytes):
             result["focus"] = focus.get_state()
             result["esp32"] = {
                 "sent": False,
-                "message": "Esperando confirmación de fotogramas consecutivos",
+                "message": "Esperando a confirmar que no hay una persona reconocida",
             }
             result["message"] = (
-                f"Posible coincidencia: {result['person']['name']}. "
-                f"Confirmando { _live_candidate_frames }/{required}..."
-                if candidate_id is not None
-                else f"Buscando un rostro estable ({_live_candidate_frames}/{required})..."
+                f"Buscando un rostro reconocido "
+                f"({_live_candidate_frames}/{required})..."
             )
             return result
 
@@ -205,7 +214,10 @@ def _recognize_live_frame(image_bytes: bytes):
                 result["focus"] = focus.turn_off_all()
             _live_last_applied_id = target_id
         else:
-            result["focus"] = focus.get_state()
+            # Aunque no se repita la activación, se devuelve el vehículo de la
+            # persona reconocida para que la interfaz no muestre "sin vehículo"
+            # en los fotogramas posteriores a la confirmación.
+            result["focus"] = focus.get_state(candidate_id)
 
         # Si el ESP32 estaba desconectado, se vuelve a intentar en los siguientes
         # fotogramas hasta confirmar el envío, sin repetir eventos de foco.
@@ -266,6 +278,9 @@ def change_owner(vehicle_id: int, payload: OwnerPayload):
         raise HTTPException(status_code=404, detail="Vehículo no encontrado")
     focus.turn_off_all()
     esp32_serial.enviar_persona(0)
+    # La asignación cambió: se debe volver a evaluar y enviar en el próximo
+    # reconocimiento, aunque sea la misma persona que antes.
+    _reset_live_state()
     return {"message": "Dueño actualizado", "vehicle": vehicle}
 
 
@@ -276,14 +291,9 @@ def focus_state():
 
 @app.post("/api/focus/off")
 def focus_off():
-    global _live_last_sent_id, _live_last_applied_id, _live_candidate_id, _live_candidate_frames
     result = focus.turn_off_all()
     result["esp32"] = esp32_serial.enviar_persona(0)
-    with _live_lock:
-        _live_last_sent_id = 0
-        _live_last_applied_id = 0
-        _live_candidate_id = None
-        _live_candidate_frames = 0
+    _reset_live_state()
     return result
 
 

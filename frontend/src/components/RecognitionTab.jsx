@@ -74,8 +74,13 @@ export default function RecognitionTab({ focusState, refreshFocus }) {
         const data = await api('/api/recognize/live', { method: 'POST' })
         if (!active) return
         setResult(data)
-        if (data.esp32?.sent) {
+        // Se actualiza el estado de los focos cuando la identificación queda
+        // confirmada, aunque el ESP32 no esté conectado, para que el vehículo
+        // asignado aparezca también en los fotogramas siguientes.
+        if (data.stable) {
           await refreshFocus()
+        }
+        if (data.esp32?.sent) {
           await loadEsp32Status()
         }
         setMessage(null)

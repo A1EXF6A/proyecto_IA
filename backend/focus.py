@@ -70,11 +70,24 @@ def _deliver(vehicle, owner_name: str, action: str):
     return result
 
 
-def get_state():
+def get_state(person_id: int | None = None):
+    """Estado de los focos.
+
+    Si se indica ``person_id`` se devuelve el vehículo asignado a esa persona
+    (aunque el foco todavía no se haya marcado como activo). Sin ese dato se
+    devuelve el vehículo que está encendido en ese momento.
+    """
     vehicles = db.get_vehicles()
+    if person_id is not None:
+        vehicle = next(
+            (item for item in vehicles if item["owner_id"] == person_id), None
+        )
+    else:
+        vehicle = next((item for item in vehicles if item["focus_active"]), None)
     return {
         "vehicles": vehicles,
-        "active_count": sum(1 for vehicle in vehicles if vehicle["focus_active"]),
+        "active_count": sum(1 for item in vehicles if item["focus_active"]),
+        "vehicle": vehicle,
     }
 
 
@@ -90,6 +103,8 @@ def activate_for(person_id: int):
     if vehicle:
         db.set_focus_on(vehicle["id"])
         db.log_focus_event(vehicle["id"], person_id, "on")
+        # Se relee para devolver el vehículo ya marcado como activo.
+        vehicle = db.get_vehicle(vehicle["id"]) or vehicle
     else:
         db.log_focus_event(None, person_id, "none")
     delivery = _deliver(vehicle, owner_name, "on" if vehicle else "none")

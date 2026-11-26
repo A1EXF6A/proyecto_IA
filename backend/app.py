@@ -140,7 +140,7 @@ def _recognize_bytes(image_bytes: bytes):
         result["esp32"] = esp32_serial.enviar_persona(person_id)
     else:
         result["focus"] = focus.turn_off_all()
-        result["esp32"] = esp32_serial.enviar_persona(0)
+        result["esp32"] = esp32_serial.enviar_persona(5)
     return result
 
 
@@ -195,9 +195,11 @@ def _recognize_live_frame(image_bytes: bytes):
             )
             return result
 
-        target_id = candidate_id or 0
+        # ID 5 representa rostro no reconocido; ID 0 se reserva para apagar
+        # explícitamente todos los LED (por ejemplo, al detener el sistema).
+        target_id = candidate_id if candidate_id is not None else 5
         if target_id != _live_last_applied_id:
-            if target_id:
+            if candidate_id is not None:
                 result["focus"] = focus.activate_for(target_id)
             else:
                 result["focus"] = focus.turn_off_all()
@@ -221,8 +223,8 @@ def _recognize_live_frame(image_bytes: bytes):
 
         result["message"] = (
             f"Persona reconocida: {result['person']['name']}"
-            if target_id
-            else "No se detecta una persona reconocida"
+            if candidate_id is not None
+            else "Persona desconocida o sin rostro reconocido"
         )
         return result
 

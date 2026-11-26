@@ -1,7 +1,8 @@
-#define LED_ROJO     25
-#define LED_VERDE    26
-#define LED_AZUL     27
-#define LED_AMARILLO 32
+#define LED_ROJO        25
+#define LED_VERDE       26
+#define LED_AZUL        27
+#define LED_AMARILLO    32
+#define LED_DESCONOCIDO 33
 
 String bufferSerial = "";
 
@@ -10,33 +11,38 @@ void apagarLEDs() {
   digitalWrite(LED_VERDE, LOW);
   digitalWrite(LED_AZUL, LOW);
   digitalWrite(LED_AMARILLO, LOW);
+  digitalWrite(LED_DESCONOCIDO, LOW);
 }
 
 void procesarMensaje(String mensaje) {
   mensaje.trim();
+  apagarLEDs();
 
   if (mensaje == "ID:0") {
-    apagarLEDs();
-    Serial.println("OK: TODOS LOS LEDS APAGADOS");
-  } else if (mensaje == "ID:1") {
-    apagarLEDs();
+    Serial.println("TODOS LOS LEDS APAGADOS");
+  }
+  else if (mensaje == "ID:1") {
     digitalWrite(LED_ROJO, HIGH);
-    Serial.println("OK: PERSONA 1 - LED ROJO");
-  } else if (mensaje == "ID:2") {
-    apagarLEDs();
+    Serial.println("ALEXANDER LUISA - LED ROJO");
+  }
+  else if (mensaje == "ID:2") {
     digitalWrite(LED_VERDE, HIGH);
-    Serial.println("OK: PERSONA 2 - LED VERDE");
-  } else if (mensaje == "ID:3") {
-    apagarLEDs();
+    Serial.println("ALEX GUACHI - LED VERDE");
+  }
+  else if (mensaje == "ID:3") {
     digitalWrite(LED_AZUL, HIGH);
-    Serial.println("OK: PERSONA 3 - LED AZUL");
-  } else if (mensaje == "ID:4") {
-    apagarLEDs();
+    Serial.println("HEIDI VILLAVICENICIO - LED AZUL");
+  }
+  else if (mensaje == "ID:4") {
     digitalWrite(LED_AMARILLO, HIGH);
-    Serial.println("OK: PERSONA 4 - LED AMARILLO");
-  } else {
-    Serial.print("ERROR: IDENTIFICADOR NO VALIDO: ");
-    Serial.println(mensaje);
+    Serial.println("STEVEN TOALA - LED AMARILLO");
+  }
+  else if (mensaje == "ID:5") {
+    digitalWrite(LED_DESCONOCIDO, HIGH);
+    Serial.println("PERSONA DESCONOCIDA - LED DE ALERTA");
+  }
+  else {
+    Serial.println("IDENTIFICADOR NO VALIDO");
   }
 }
 
@@ -48,9 +54,11 @@ void setup() {
   pinMode(LED_VERDE, OUTPUT);
   pinMode(LED_AZUL, OUTPUT);
   pinMode(LED_AMARILLO, OUTPUT);
+  pinMode(LED_DESCONOCIDO, OUTPUT);
 
   apagarLEDs();
-  Serial.println("ESP32 listo para recibir identificadores");
+
+  Serial.println("ESP32 LISTO");
 }
 
 void loop() {
@@ -60,7 +68,8 @@ void loop() {
     if (caracter == '\n') {
       procesarMensaje(bufferSerial);
       bufferSerial = "";
-    } else if (caracter != '\r') {
+    }
+    else if (caracter != '\r') {
       if (bufferSerial.length() < 32) {
         bufferSerial += caracter;
       } else {

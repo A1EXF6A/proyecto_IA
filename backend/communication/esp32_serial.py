@@ -49,14 +49,14 @@ def conectar():
 
 
 def enviar_persona(persona_id):
-    """Envía ID:n. ID 0 apaga todos los LED."""
+    """Envía ID:n. ID 0 apaga todos los LED; ID 5 activa la alerta de desconocido."""
     global _port, _last_error
     try:
         persona_id = int(persona_id)
     except (TypeError, ValueError):
         raise ValueError("El identificador de persona debe ser un entero")
-    if persona_id not in (0, 1, 2, 3, 4):
-        raise ValueError("Identificador no válido. Valores permitidos: 0, 1, 2, 3, 4")
+    if persona_id not in (0, 1, 2, 3, 4, 5):
+        raise ValueError("Identificador no válido. Valores permitidos: 0, 1, 2, 3, 4, 5")
 
     with _lock:
         if _port is None or not getattr(_port, "is_open", False):

@@ -34,7 +34,7 @@ export default function App() {
           <p className="eyebrow">IP Web Cam + SQLite</p>
           <h1>Control de vehículos por reconocimiento facial</h1>
           <p className="subtitle">
-            Mira la cámara en vivo, identifica al dueño y enciende el foco de su vehículo.
+            La cámara transmite continuamente; el sistema identifica automáticamente a quien se acerque.
           </p>
         </div>
         <div className={`service-badge ${health?.ok ? 'online' : 'offline'}`}>

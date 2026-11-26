@@ -56,7 +56,7 @@ def ensure_dirs() -> None:
 
 # Modelo KNN entrenado en el notebook (único modelo utilizado en producción).
 MODEL_DIR = BACKEND_DIR / "models"
-BEST_MODEL_PATH = env_path("BEST_MODEL_PATH", "models/knn_best.joblib")
+BEST_MODEL_PATH = env_path("BEST_MODEL_PATH", "models/modelos.joblib")
 BEST_MODEL_KEY = os.getenv("BEST_MODEL_KEY", "KNN").strip()
 BEST_MODEL_LABELS_PATH = env_path("BEST_MODEL_LABELS_PATH", "models/labels.json")
 FACE_MODEL_THRESHOLD = float(os.getenv("FACE_MODEL_THRESHOLD", "0.0"))

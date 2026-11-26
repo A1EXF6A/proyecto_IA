@@ -1,5 +1,6 @@
 import base64
 import time
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -143,6 +144,89 @@ def _recognize_bytes(image_bytes: bytes):
     return result
 
 
+# Estado de estabilización para el reconocimiento automático.
+# Se exige más de un fotograma para evitar cambios por predicciones aisladas.
+_live_lock = threading.Lock()
+_live_candidate_id = None
+_live_candidate_frames = 0
+_live_last_sent_id = 0
+_live_last_applied_id = 0
+_LIVE_CONFIRM_FRAMES = 2
+_LIVE_UNKNOWN_FRAMES = 3
+
+
+def _recognize_live_frame(image_bytes: bytes):
+    global _live_candidate_id, _live_candidate_frames, _live_last_sent_id, _live_last_applied_id
+    try:
+        result = face_engine.recognize(image_bytes)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+
+    candidate_id = (
+        int(result["person"]["id"])
+        if result.get("recognized") and result.get("person")
+        else None
+    )
+
+    with _live_lock:
+        if candidate_id == _live_candidate_id:
+            _live_candidate_frames += 1
+        else:
+            _live_candidate_id = candidate_id
+            _live_candidate_frames = 1
+
+        required = _LIVE_CONFIRM_FRAMES if candidate_id is not None else _LIVE_UNKNOWN_FRAMES
+        stable = _live_candidate_frames >= required
+        result["stable"] = stable
+        result["pending_frames"] = _live_candidate_frames
+        result["required_frames"] = required
+
+        if not stable:
+            result["focus"] = focus.get_state()
+            result["esp32"] = {
+                "sent": False,
+                "message": "Esperando confirmación de fotogramas consecutivos",
+            }
+            result["message"] = (
+                f"Posible coincidencia: {result['person']['name']}. "
+                f"Confirmando { _live_candidate_frames }/{required}..."
+                if candidate_id is not None
+                else f"Buscando un rostro estable ({_live_candidate_frames}/{required})..."
+            )
+            return result
+
+        target_id = candidate_id or 0
+        if target_id != _live_last_applied_id:
+            if target_id:
+                result["focus"] = focus.activate_for(target_id)
+            else:
+                result["focus"] = focus.turn_off_all()
+            _live_last_applied_id = target_id
+        else:
+            result["focus"] = focus.get_state()
+
+        # Si el ESP32 estaba desconectado, se vuelve a intentar en los siguientes
+        # fotogramas hasta confirmar el envío, sin repetir eventos de foco.
+        serial_state = esp32_serial.estado()
+        if target_id != _live_last_sent_id or not serial_state["connected"]:
+            result["esp32"] = esp32_serial.enviar_persona(target_id)
+            if result["esp32"].get("sent"):
+                _live_last_sent_id = target_id
+        else:
+            result["esp32"] = {
+                "sent": False,
+                "person_id": target_id,
+                "message": "Sin cambios: la salida ya corresponde a esta identificación",
+            }
+
+        result["message"] = (
+            f"Persona reconocida: {result['person']['name']}"
+            if target_id
+            else "No se detecta una persona reconocida"
+        )
+        return result
+
+
 @app.get("/api/health")
 def health():
     return {
@@ -190,8 +274,14 @@ def focus_state():
 
 @app.post("/api/focus/off")
 def focus_off():
+    global _live_last_sent_id, _live_last_applied_id, _live_candidate_id, _live_candidate_frames
     result = focus.turn_off_all()
     result["esp32"] = esp32_serial.enviar_persona(0)
+    with _live_lock:
+        _live_last_sent_id = 0
+        _live_last_applied_id = 0
+        _live_candidate_id = None
+        _live_candidate_frames = 0
     return result
 
 
@@ -251,6 +341,12 @@ async def recognize_upload(file: UploadFile | None = File(None)):
 @app.post("/api/recognize/json")
 def recognize_json(payload: RecognizePayload):
     return _recognize_bytes(_source_bytes(None, payload.image_base64))
+
+
+@app.post("/api/recognize/live")
+def recognize_live():
+    """Analiza automáticamente el fotograma actual de IP Webcam."""
+    return _recognize_live_frame(_camera_bytes())
 
 
 @app.get("/api/faces/status")

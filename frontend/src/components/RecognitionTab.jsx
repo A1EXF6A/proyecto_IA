@@ -1,16 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
-import { api, cameraStreamUrl, postForm, postJson } from '../api.js'
+import { useEffect, useState } from 'react'
+import { api, cameraStreamUrl, postForm } from '../api.js'
 
 export default function RecognitionTab({ focusState, refreshFocus }) {
   const [streamKey, setStreamKey] = useState(0)
   const [previewLoaded, setPreviewLoaded] = useState(false)
   const [previewFailed, setPreviewFailed] = useState(false)
-  const [flash, setFlash] = useState(false)
   const [cameraStatus, setCameraStatus] = useState({ configured: false })
   const [esp32Status, setEsp32Status] = useState({ connected: false, port: 'COM3' })
   const [result, setResult] = useState(null)
   const [message, setMessage] = useState(null)
-  const [busy, setBusy] = useState(false)
   const [faceStatus, setFaceStatus] = useState({
     trained: false,
     provider: 'lbph',
@@ -20,8 +18,9 @@ export default function RecognitionTab({ focusState, refreshFocus }) {
   const [trainingPerson, setTrainingPerson] = useState('')
   const [sampleFile, setSampleFile] = useState(null)
   const [trainingBusy, setTrainingBusy] = useState(false)
-  const uploadRef = useRef(null)
-  const flashTimer = useRef(null)
+  const [recognitionFile, setRecognitionFile] = useState(null)
+  const [uploadBusy, setUploadBusy] = useState(false)
+  const [uploadResult, setUploadResult] = useState(null)
 
   const externalModel = faceStatus.provider && faceStatus.provider !== 'lbph'
 
@@ -63,6 +62,41 @@ export default function RecognitionTab({ focusState, refreshFocus }) {
     loadEsp32Status()
   }, [])
 
+  // Reconocimiento automático: consulta un fotograma de IP Webcam cada segundo.
+  // El ciclo se programa después de terminar cada petición para evitar solapamientos.
+  useEffect(() => {
+    if (!cameraStatus.configured) return undefined
+    let active = true
+    let timerId
+
+    const analyzeNextFrame = async () => {
+      try {
+        const data = await api('/api/recognize/live', { method: 'POST' })
+        if (!active) return
+        setResult(data)
+        if (data.esp32?.sent) {
+          await refreshFocus()
+          await loadEsp32Status()
+        }
+        setMessage(null)
+      } catch (error) {
+        if (active) {
+          setMessage({ type: 'error', text: `Reconocimiento automático: ${error.message}` })
+        }
+      } finally {
+        if (active) {
+          timerId = window.setTimeout(analyzeNextFrame, 1000)
+        }
+      }
+    }
+
+    analyzeNextFrame()
+    return () => {
+      active = false
+      window.clearTimeout(timerId)
+    }
+  }, [cameraStatus.configured, refreshFocus])
+
   // Si el stream en vivo se corta (cámara apagada, cambio de red, etc.),
   // se reintenta automáticamente cada pocos segundos.
   useEffect(() => {
@@ -75,53 +109,38 @@ export default function RecognitionTab({ focusState, refreshFocus }) {
     return () => window.clearTimeout(timer)
   }, [previewFailed, cameraStatus.configured])
 
-  useEffect(() => () => {
-    if (flashTimer.current) window.clearTimeout(flashTimer.current)
-  }, [])
-
   function reconnectPreview() {
     setPreviewFailed(false)
     setPreviewLoaded(false)
     setStreamKey(Date.now())
   }
 
-  async function recognize(payload, isForm = false) {
-    setBusy(true)
-    setMessage(null)
-    setResult(null)
+  // Reconocimiento puntual mediante una imagen seleccionada desde el ordenador.
+  // Esta opción es independiente de la cámara en vivo y utiliza el mismo modelo.
+  async function handleUploadRecognition() {
+    if (!recognitionFile) {
+      setMessage({ type: 'error', text: 'Selecciona una imagen desde el ordenador.' })
+      return
+    }
+    setUploadBusy(true)
     try {
-      const data = isForm
-        ? await postForm('/api/recognize', payload)
-        : await postJson('/api/recognize/json', payload)
-      setResult(data)
+      const form = new FormData()
+      form.append('file', recognitionFile)
+      const data = await postForm('/api/recognize', form)
+      setUploadResult(data)
+      setMessage({
+        type: data.recognized ? 'success' : 'warning',
+        text: data.recognized
+          ? `Imagen reconocida: ${data.person.name}. Se envió la identificación al ESP32.`
+          : 'No se pudo identificar a la persona en la imagen.'
+      })
       await refreshFocus()
       await loadEsp32Status()
     } catch (error) {
-      setMessage({ type: 'error', text: error.message })
+      setMessage({ type: 'error', text: `No se pudo analizar la imagen: ${error.message}` })
     } finally {
-      setBusy(false)
+      setUploadBusy(false)
     }
-  }
-
-  function handleCapture() {
-    if (!cameraStatus.configured) {
-      setMessage({ type: 'error', text: 'Configure IPWEBCAM_URL en el backend' })
-      return
-    }
-    // Pequeño destello para indicar que se tomó el fotograma actual.
-    setFlash(true)
-    if (flashTimer.current) window.clearTimeout(flashTimer.current)
-    flashTimer.current = window.setTimeout(() => setFlash(false), 320)
-    recognize({})
-  }
-
-  function handleUpload(event) {
-    const file = event.target.files?.[0]
-    if (!file) return
-    const form = new FormData()
-    form.append('file', file)
-    recognize(form, true)
-    event.target.value = ''
   }
 
   async function handleSample(source) {
@@ -180,8 +199,8 @@ export default function RecognitionTab({ focusState, refreshFocus }) {
     await loadEsp32Status()
   }
 
-  const vehicle = result?.focus?.vehicle
   const activeVehicle = focusState.vehicles.find((item) => item.focus_active)
+  const vehicle = result?.focus?.vehicle || activeVehicle
   const modelLabel = externalModel ? `Modelo ${faceStatus.provider}` : faceStatus.trained ? 'Modelo entrenado' : 'Modelo sin entrenar'
 
   return (
@@ -190,7 +209,7 @@ export default function RecognitionTab({ focusState, refreshFocus }) {
         <div className="panel-header">
           <div>
             <h2>Cámara en vivo (IP Web Cam)</h2>
-            <p className="muted">Lo que ves es la transmisión actual del celular; toma la foto cuando el rostro esté en cuadro.</p>
+            <p className="muted">Transmisión continua desde el teléfono con reconocimiento facial automático.</p>
           </div>
           <div className="chip-row">
             <span className={faceStatus.trained ? 'chip success' : 'chip warning'}>{modelLabel}</span>
@@ -234,7 +253,6 @@ export default function RecognitionTab({ focusState, refreshFocus }) {
                     No se pudo cargar la vista en vivo. Reconectando…
                   </div>
                 )}
-                <span className={`capture-flash ${flash ? 'active' : ''}`} />
               </>
             )}
           </div>
@@ -247,41 +265,74 @@ export default function RecognitionTab({ focusState, refreshFocus }) {
             >
               Reconectar cámara
             </button>
-            <button
-              className="button primary"
-              type="button"
-              onClick={handleCapture}
-              disabled={busy || !cameraStatus.configured}
-            >
-              {busy ? 'Procesando...' : 'Tomar foto y reconocer'}
-            </button>
-            <button
-              className="button secondary"
-              type="button"
-              onClick={() => uploadRef.current?.click()}
-              disabled={busy}
-            >
-              Subir foto desde la PC
-            </button>
-            <input
-              ref={uploadRef}
-              className="hidden-input"
-              type="file"
-              accept="image/*"
-              onChange={handleUpload}
-            />
+            <div className="alert success">
+              Reconocimiento automático activo. El sistema analiza fotogramas continuamente y no necesita que presiones un botón.
+            </div>
             <p className="muted small">
-              Al tomar la foto se analiza el fotograma actual, se compara con el modelo KNN y se activa el foco del vehículo.
+              Cuando una persona aparece frente a la cámara, el modelo KNN verifica su identidad en fotogramas consecutivos y envía el identificador al ESP32.
             </p>
           </div>
         </div>
+      </section>
+
+      <section className="panel full-width">
+        <div className="panel-header">
+          <div>
+            <h2>Reconocer imagen desde el ordenador</h2>
+            <p className="muted">También puedes seleccionar una fotografía guardada en tu equipo. Se analizará con el mismo modelo KNN y, si se reconoce a una persona, se enviará su identificador al ESP32.</p>
+          </div>
+          <span className="chip">Reconocimiento manual</span>
+        </div>
+        <div className="training-layout">
+          <label className="field">
+            <span>Seleccionar fotografía</span>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(event) => {
+                setRecognitionFile(event.target.files?.[0] || null)
+                setUploadResult(null)
+              }}
+            />
+          </label>
+          <div className="training-actions">
+            <button
+              className="button primary"
+              type="button"
+              disabled={uploadBusy || !recognitionFile}
+              onClick={handleUploadRecognition}
+            >
+              {uploadBusy ? 'Analizando imagen…' : 'Analizar imagen'}
+            </button>
+          </div>
+        </div>
+        {uploadResult && (
+          <div className="result-layout upload-result">
+            <img className="result-image" src={uploadResult.annotated_image} alt="Imagen subida y analizada" />
+            <div className="result-details">
+              <h3 className={uploadResult.recognized ? 'name-success' : 'name-unknown'}>
+                {uploadResult.recognized ? uploadResult.person.name : 'Persona no identificada'}
+              </h3>
+              <p className="muted">{uploadResult.message}</p>
+              <p className="muted small">
+                ESP32: {uploadResult.esp32?.sent
+                  ? `comando ${uploadResult.esp32.message} enviado`
+                  : `sin envío: ${uploadResult.esp32?.message || 'puerto no disponible'}`}
+              </p>
+              <div className="metrics">
+                <div><span>Confianza</span><strong>{uploadResult.confidence != null ? `${uploadResult.confidence}%` : 'N/A'}</strong></div>
+                <div><span>Distancia</span><strong>{uploadResult.distance != null ? uploadResult.distance : 'N/A'}</strong></div>
+              </div>
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="panel">
         <div className="panel-header">
           <div>
             <h2>Resultado</h2>
-            <p className="muted">Dueño, vehículo y foco activado</p>
+            <p className="muted">Identidad detectada y estado de activación del ESP32</p>
           </div>
           {activeVehicle && <span className="chip live">Foco encendido</span>}
         </div>
@@ -296,6 +347,9 @@ export default function RecognitionTab({ focusState, refreshFocus }) {
                 {result.recognized ? result.person.name : 'Persona no identificada'}
               </h3>
               <p className="muted">{result.message}</p>
+              {!result.stable && result.required_frames && (
+                <p className="muted small">Confirmación: {result.pending_frames}/{result.required_frames} fotogramas</p>
+              )}
               <p className="muted small">
                 ESP32: {result.esp32?.sent
                   ? `comando ${result.esp32.message} enviado`
@@ -327,7 +381,7 @@ export default function RecognitionTab({ focusState, refreshFocus }) {
           </div>
         ) : (
           <div className="empty-state">
-            <p>Toma una foto para ver el resultado del reconocimiento.</p>
+            <p>Esperando fotogramas de la cámara para detectar una persona automáticamente.</p>
           </div>
         )}
 

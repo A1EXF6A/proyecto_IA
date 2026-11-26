@@ -2,9 +2,9 @@
 
 ## Qué quedó integrado
 
-- Frontend React existente: muestra una vista en vivo de la cámara, captura y resultado.
+- Frontend React existente: muestra la transmisión en vivo y el resultado del reconocimiento automático.
 - Backend FastAPI: entrega el video en vivo (MJPEG), obtiene la imagen desde IP Webcam, procesa el rostro y ejecuta el modelo KNN.
-- Modelo: `backend/models/knn_best.joblib` (único clasificador usado).
+- Modelo: `backend/models/modelos.joblib`, utilizando la clave `KNN` (único clasificador usado).
 - Etiquetas: `backend/models/labels.json`.
 - Preprocesamiento: YuNet + alineación de ojos + escala de grises 64x64 + estadísticas regionales 4x4 + HOG. Se replica el procedimiento del notebook.
 - Serial: `backend/communication/esp32_serial.py`, protocolo `ID:n\n`.
@@ -110,15 +110,13 @@ Abre la URL que muestre Vite. El backend estará en `http://localhost:8000`.
 
 ## Secuencia de funcionamiento
 
-1. Al abrir la interfaz, React se conecta a `GET /api/camera/stream` y muestra la cámara en vivo.
-2. El usuario pulsa **Tomar foto y reconocer**.
-3. React solicita al backend el reconocimiento; FastAPI descarga el fotograma actual de IP Webcam.
-4. YuNet localiza el rostro, lo recorta, alinea y normaliza.
-5. El backend genera el mismo vector de 356 características usado al entrenar KNN.
-6. KNN devuelve una etiqueta.
-7. Si es una persona conocida, se busca su ID en SQLite y se envía `ID:<id>`.
-8. Si es desconocida, no hay rostro o no se puede identificar, se envía `ID:0`.
-9. El ESP32 apaga todos los LED y enciende solamente el LED asociado al ID recibido.
+1. Al abrir la interfaz, React se conecta a `GET /api/camera/stream` y muestra la transmisión en vivo del teléfono.
+2. Sin presionar botones, React consulta automáticamente `POST /api/recognize/live` cada segundo.
+3. FastAPI obtiene el fotograma actual de IP Webcam y ejecuta YuNet, el preprocesamiento y KNN.
+4. Para evitar activaciones por predicciones aisladas, se requieren 2 fotogramas consecutivos para confirmar una identidad y 3 fotogramas sin identidad para apagar la salida.
+5. Cuando se confirma una persona, el backend busca su ID en SQLite y envía `ID:<id>` al ESP32. El comando solo se vuelve a enviar si cambia la persona reconocida.
+6. Cuando se confirma que no hay una persona reconocida, se envía `ID:0` una sola vez para apagar los LED.
+7. El ESP32 apaga todos los LED y enciende el LED asociado al ID recibido.
 
 ## Verificación
 
@@ -135,3 +133,16 @@ Abre la URL que muestre Vite. El backend estará en `http://localhost:8000`.
 - No vuelvas a entrenar KNN con las fotos capturadas en vivo desde esta interfaz; el artefacto seleccionado se mantiene como modelo fijo.
 - Si KNN reconoce una etiqueta pero la persona no existe en SQLite con el mismo nombre, se tratará como desconocida y se enviará `ID:0`.
 - Para un uso de control de acceso real, valida el modelo con fotografías de prueba representativas del entorno final; el resultado independiente actual aún presenta errores de clasificación.
+
+
+## Reconocimiento automático continuo
+
+- El reconocimiento automático en vivo no requiere presionar botones.
+- También está disponible la opción **Reconocer imagen desde el ordenador**, que permite seleccionar una fotografía y analizarla bajo demanda con el mismo modelo KNN.
+- La imagen subida se procesa mediante `POST /api/recognize`; si se reconoce una persona, se activa su foco y se envía su identificador al ESP32. Si no se reconoce, se envía `ID:0`.
+- La vista de cámara permanece en vivo y el frontend envía una solicitud automática al backend cada 1000 ms.
+- Cada solicitud analiza el fotograma actual de `IPWEBCAM_URL`; no es necesario que el usuario capture una foto.
+- El backend confirma una identidad después de 2 fotogramas consecutivos. Para considerar que la persona salió del encuadre y apagar los LED, exige 3 fotogramas sin una identidad reconocida.
+- La sección **Registro de rostros** sigue destinada exclusivamente a registrar muestras de entrenamiento. La nueva sección de reconocimiento desde el ordenador es independiente y permite analizar una imagen sin incorporarla al conjunto de entrenamiento.
+- El reconocimiento automático de la cámara continúa activo mientras se utiliza la carga manual; por tanto, un fotograma posterior de la cámara puede actualizar el resultado y el estado de los LED.
+- El endpoint automático es `POST /api/recognize/live`.
